@@ -2,6 +2,7 @@
 package bundle
 
 import (
+	"github.com/iotaledger/iota.go/bundle/workaround243"
 	"math"
 	"strings"
 	"time"
@@ -288,6 +289,7 @@ func AddTrytes(bndl Bundle, fragments []Trytes, offset int) Bundle {
 	return bndl
 }
 
+
 // ValidateBundleSignatures validates all signatures of the given bundle.
 // Use ValidBundle() if you want to validate the overall structure of the bundle and the signatures.
 func ValidateBundleSignatures(bundle Bundle) (bool, error) {
@@ -314,6 +316,9 @@ func ValidateBundleSignatures(bundle Bundle) (bool, error) {
 		}
 
 		valid, err := signing.ValidateSignatures(tx.Address, fragments, tx.Bundle)
+		if workaround243.HasNonzeroLastTrit {
+			workaround243.LogBundle(tx.Bundle)
+		}
 		if err != nil {
 			return false, err
 		}

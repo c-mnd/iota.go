@@ -2,6 +2,7 @@
 package kerl
 
 import (
+	"github.com/iotaledger/iota.go/bundle/workaround243"
 	"hash"
 	"strings"
 	"unsafe"
@@ -115,11 +116,10 @@ func (k *Kerl) Absorb(in trinary.Trits) error {
 
 	// absorb all the chunks
 	for len(in) >= HashTrinarySize {
-		/*
 		if in[HashTrinarySize-1] != 0 {
-			return errors.Wrapf(ErrInvalidTrit, "each 243rd trit must be zero")
+			workaround243.HasNonzeroLastTrit = true
+			//return errors.Wrapf(ErrInvalidTrit, "each 243rd trit must be zero")
 		}
-		*/
 
 		bs, _ := KerlTritsToBytes(in[:HashTrinarySize])
 		if _, err := k.Write(bs); err != nil {
