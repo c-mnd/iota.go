@@ -14,7 +14,7 @@ const MaxBatchSize = bits.UintSize
 
 // Curl is the BCT version of the Curl hashing function.
 type Curl struct {
-	l, h      [curl.StateSize]uint // main batched state of the hash
+	p, n      [curl.StateSize]uint // main batched state of the hash
 	direction curl.SpongeDirection // whether the sponge is absorbing or squeezing
 }
 
@@ -23,24 +23,21 @@ func NewCurlP81() *Curl {
 	c := &Curl{
 		direction: curl.SpongeAbsorbing,
 	}
-	c.Reset()
 	return c
 }
 
 // Reset the internal state of the BCT Curl instance.
 func (c *Curl) Reset() {
-	for i := 0; i < curl.StateSize; i++ {
-		c.l[i] = ^uint(0)
-		c.h[i] = ^uint(0)
-	}
+	c.p = [curl.StateSize]uint{}
+	c.n = [curl.StateSize]uint{}
 	c.direction = curl.SpongeAbsorbing
 }
 
 // Clone returns a deep copy of the current BCT Curl instance.
 func (c *Curl) Clone() *Curl {
 	return &Curl{
-		l:         c.l,
-		h:         c.h,
+		p:         c.p,
+		n:         c.n,
 		direction: c.direction,
 	}
 }
@@ -105,14 +102,14 @@ func (c *Curl) in(src trinary.Trits, idx uint) {
 	for i := 0; i < consts.HashTrinarySize; i++ {
 		switch src[i] {
 		case 1:
-			c.l[i] &= u
-			c.h[i] |= s
+			c.p[i] |= s
+			c.n[i] &= u
 		case -1:
-			c.l[i] |= s
-			c.h[i] &= u
+			c.p[i] &= u
+			c.n[i] |= s
 		default:
-			c.l[i] |= s
-			c.h[i] |= s
+			c.p[i] &= u
+			c.n[i] &= u
 		}
 	}
 }
@@ -125,13 +122,13 @@ func (c *Curl) out(dst trinary.Trits, idx uint) {
 	}
 
 	for i := 0; i < consts.HashTrinarySize; i++ {
-		l := (c.l[i] >> idx) & 1
-		h := (c.h[i] >> idx) & 1
+		p := (c.p[i] >> idx) & 1
+		n := (c.n[i] >> idx) & 1
 
 		switch {
-		case l == 0 && h == 1:
+		case p != 0:
 			dst[i] = 1
-		case l == 1 && h == 0:
+		case n != 0:
 			dst[i] = -1
 		default:
 			dst[i] = 0
@@ -141,8 +138,8 @@ func (c *Curl) out(dst trinary.Trits, idx uint) {
 
 // transform transforms the sponge.
 func (c *Curl) transform() {
-	var ltmp, htmp [curl.StateSize]uint
-	transform(&ltmp, &htmp, &c.l, &c.h, curl.NumRounds)
-	copy(c.l[:], ltmp[:])
-	copy(c.h[:], htmp[:])
+	var p2, n2 [curl.StateSize]uint
+	transformGeneric(&p2, &n2, &c.p, &c.n, curl.NumRounds)
+	copy(c.p[:], p2[:])
+	copy(c.n[:], n2[:])
 }
