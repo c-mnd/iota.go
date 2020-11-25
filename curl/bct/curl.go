@@ -12,63 +12,39 @@ import (
 // MaxBatchSize is the maximum number of Curl hashes that can be computed in one batch.
 const MaxBatchSize = bits.UintSize
 
-type state struct {
-	l, h      [curl.StateSize]uint // main batched state of the hash
-	rounds    curl.CurlRounds      // number of rounds used
+// Curl is the BCT version of the Curl hashing function.
+type Curl struct {
+	p, n      [curl.StateSize]uint // main batched state of the hash
 	direction curl.SpongeDirection // whether the sponge is absorbing or squeezing
 }
 
-// NewCurl initializes a new BCT Curl instance.
-func NewCurl(rounds ...curl.CurlRounds) *state {
-	r := curl.NumberOfRounds
-	if len(rounds) > 0 {
-		r = rounds[0]
-	}
-	c := &state{
-		rounds:    r,
+// NewCurlP81 returns a new BCT Curl-P-81.
+func NewCurlP81() *Curl {
+	c := &Curl{
 		direction: curl.SpongeAbsorbing,
 	}
-	c.Reset()
 	return c
 }
 
-// NewCurlP27 returns a new BCT Curl-P-27.
-func NewCurlP27() *state {
-	return NewCurl(curl.CurlP27)
-}
-
-// NewCurlP81 returns a new BCT Curl-P-81.
-func NewCurlP81() *state {
-	return NewCurl(curl.CurlP81)
-}
-
-// NumRounds returns the number of rounds for the BCT Curl instance.
-func (c *state) NumRounds() int {
-	return int(c.rounds)
-}
-
 // Reset the internal state of the BCT Curl instance.
-func (c *state) Reset() {
-	for i := 0; i < curl.StateSize; i++ {
-		c.l[i] = ^uint(0)
-		c.h[i] = ^uint(0)
-	}
+func (c *Curl) Reset() {
+	c.p = [curl.StateSize]uint{}
+	c.n = [curl.StateSize]uint{}
 	c.direction = curl.SpongeAbsorbing
 }
 
 // Clone returns a deep copy of the current BCT Curl instance.
-func (c *state) Clone() *state {
-	return &state{
-		l:         c.l,
-		h:         c.h,
-		rounds:    c.rounds,
+func (c *Curl) Clone() *Curl {
+	return &Curl{
+		p:         c.p,
+		n:         c.n,
 		direction: c.direction,
 	}
 }
 
 // Absorb fills the states of the sponge with src; each element of src must have the length tritsCount.
 // The value tritsCount has to be a multiple of HashTrinarySize.
-func (c *state) Absorb(src []trinary.Trits, tritsCount int) error {
+func (c *Curl) Absorb(src []trinary.Trits, tritsCount int) error {
 	if len(src) < 1 || len(src) > MaxBatchSize {
 		return consts.ErrInvalidBatchSize
 	}
@@ -90,7 +66,7 @@ func (c *state) Absorb(src []trinary.Trits, tritsCount int) error {
 
 // Squeeze squeezes out trits of the given length.
 // The value tritsCount has to be a multiple of HashTrinarySize.
-func (c *state) Squeeze(dst []trinary.Trits, tritsCount int) error {
+func (c *Curl) Squeeze(dst []trinary.Trits, tritsCount int) error {
 	if len(dst) < 1 || len(dst) > MaxBatchSize {
 		return consts.ErrInvalidBatchSize
 	}
@@ -115,7 +91,7 @@ func (c *state) Squeeze(dst []trinary.Trits, tritsCount int) error {
 }
 
 // in sets the idx-th entry of the internal state to src.
-func (c *state) in(src trinary.Trits, idx uint) {
+func (c *Curl) in(src trinary.Trits, idx uint) {
 	// bounds check hint to compiler
 	if len(src) < consts.HashTrinarySize {
 		panic(consts.ErrInvalidTritsLength)
@@ -126,33 +102,33 @@ func (c *state) in(src trinary.Trits, idx uint) {
 	for i := 0; i < consts.HashTrinarySize; i++ {
 		switch src[i] {
 		case 1:
-			c.l[i] &= u
-			c.h[i] |= s
+			c.p[i] |= s
+			c.n[i] &= u
 		case -1:
-			c.l[i] |= s
-			c.h[i] &= u
+			c.p[i] &= u
+			c.n[i] |= s
 		default:
-			c.l[i] |= s
-			c.h[i] |= s
+			c.p[i] &= u
+			c.n[i] &= u
 		}
 	}
 }
 
 // out extracts the idx-th entry of the internal state to dst.
-func (c *state) out(dst trinary.Trits, idx uint) {
+func (c *Curl) out(dst trinary.Trits, idx uint) {
 	// bounds check hint to compiler
 	if len(dst) < consts.HashTrinarySize {
 		panic(consts.ErrInvalidTritsLength)
 	}
 
 	for i := 0; i < consts.HashTrinarySize; i++ {
-		l := (c.l[i] >> idx) & 1
-		h := (c.h[i] >> idx) & 1
+		p := (c.p[i] >> idx) & 1
+		n := (c.n[i] >> idx) & 1
 
 		switch {
-		case l == 0 && h == 1:
+		case p != 0:
 			dst[i] = 1
-		case l == 1 && h == 0:
+		case n != 0:
 			dst[i] = -1
 		default:
 			dst[i] = 0
@@ -161,12 +137,9 @@ func (c *state) out(dst trinary.Trits, idx uint) {
 }
 
 // transform transforms the sponge.
-func (c *state) transform() {
-	var ltmp, htmp [curl.StateSize]uint
-	transform(&ltmp, &htmp, &c.l, &c.h, uint(c.rounds))
-	// for odd number of rounds we need to copy the buffer into the state
-	if c.rounds%2 != 0 {
-		copy(c.l[:], ltmp[:])
-		copy(c.h[:], htmp[:])
-	}
+func (c *Curl) transform() {
+	var p2, n2 [curl.StateSize]uint
+	transformGeneric(&p2, &n2, &c.p, &c.n, curl.NumRounds)
+	copy(c.p[:], p2[:])
+	copy(c.n[:], n2[:])
 }
